@@ -1,6 +1,6 @@
 use image::{GenericImageView, Rgb, RgbImage};
 use palette::{
-    color_difference::{Ciede2000, ImprovedCiede2000, ImprovedDeltaE},
+    color_difference::Ciede2000,
     IntoColor, Lab, Srgb,
 };
 
@@ -25,51 +25,38 @@ fn main() {
         .map(|p| Srgb::new(p[0], p[1], p[2]))
         .collect();
     
+    let dither_strength = 0.7;
 
     let mut output_image: RgbImage = RgbImage::new(width, height);
-    println!("Processing image with JJN dithering and random noise...");
+    println!("Processing image with Hybrid Dithering (strength: {})...", dither_strength);
 
     for y in 0..height {
         for x in 0..width {
             let index = (y * width + x) as usize;
             let original_srgb = float_pixels[index];
             
-           
-
             let original_lab: Lab = original_srgb.into_linear().into_color();
             let closest_index = find_closest_color(original_lab, &lab_palette);
             let final_rgb_pixel = rgb_palette[closest_index];
 
             output_image.put_pixel(x, y, final_rgb_pixel);
 
+            let [r, g, b] = final_rgb_pixel.0;
             let final_srgb = Srgb::new(
-                final_rgb_pixel[0] as f32 / 255.0,
-                final_rgb_pixel[1] as f32 / 255.0,
-                final_rgb_pixel[2] as f32 / 255.0,
+                r as f32 / 255.0,
+                g as f32 / 255.0,
+                b as f32 / 255.0,
             );
-            let dither_strength = 1.0;
             
             let error_r = (original_srgb.red - final_srgb.red) * dither_strength;
             let error_g = (original_srgb.green - final_srgb.green) * dither_strength;
             let error_b = (original_srgb.blue - final_srgb.blue) * dither_strength;
 
             let weights = [
-            // Row y, x+1 and x+2
-            ((1, 0), 7.0 / 48.0),
-            ((2, 0), 5.0 / 48.0),
-            // Row y+1, from x-2 to x+2
-            ((-2, 1), 3.0 / 48.0),
-            ((-1, 1), 5.0 / 48.0),
-            ((0,  1), 7.0 / 48.0),
-            ((1,  1), 5.0 / 48.0),
-            ((2,  1), 3.0 / 48.0),
-            // Row y+2, from x-2 to x+2
-            ((-2, 2), 1.0 / 48.0),
-            ((-1, 2), 3.0 / 48.0),
-            ((0,  2), 5.0 / 48.0),
-            ((1,  2), 3.0 / 48.0),
-            ((2,  2), 1.0 / 48.0),
-        ]; 
+                ((1, 0), 7.0/48.0), ((2, 0), 5.0/48.0),
+                ((-2, 1), 3.0/48.0), ((-1, 1), 5.0/48.0), ((0, 1), 7.0/48.0), ((1, 1), 5.0/48.0), ((2, 1), 3.0/48.0),
+                ((-2, 2), 1.0/48.0), ((-1, 2), 3.0/48.0), ((0, 2), 5.0/48.0), ((1, 2), 3.0/48.0), ((2, 2), 1.0/48.0),
+            ]; 
 
             for &((dx, dy), weight) in &weights {
                 let nx = x as isize + dx;
@@ -78,25 +65,19 @@ fn main() {
                 if nx >= 0 && nx < width as isize && ny < height as isize {
                     let neighbor_index = (ny as u32 * width + nx as u32) as usize;
                     let mut neighbor = float_pixels[neighbor_index];
-                    neighbor.red = clamp(neighbor.red + error_r * weight);
-                    neighbor.green = clamp(neighbor.green + error_g * weight);
-                    neighbor.blue = clamp(neighbor.blue + error_b * weight);
+                    neighbor.red = (neighbor.red + error_r * weight).clamp(0.0, 1.0);
+                    neighbor.green = (neighbor.green + error_g * weight).clamp(0.0, 1.0);
+                    neighbor.blue = (neighbor.blue + error_b * weight).clamp(0.0, 1.0);
                     float_pixels[neighbor_index] = neighbor;
                 }
             }
         }
     }
-    println!("Dithering complete. Applying median filter...");
-   // let final_image = filter::median_filter(&output_image, 3, 3);
     
     output_image.save("output.png").expect("Failed to save image");
     println!("Image processing complete. Saved as output.png");
 }
 
-
-fn clamp(val: f32) -> f32 {
-    val.clamp(0.0, 1.0)
-}
 
 fn parse_hex(hex: &str) -> (u8, u8, u8) {
     let hex = hex.trim_start_matches('#');
@@ -124,8 +105,8 @@ fn find_closest_color(pixel_lab: Lab, palette: &[Lab]) -> usize {
         .min_by(|a, b| {
             let color_a = *a.1;
             let color_b = *b.1;
-            let diff_a = ImprovedCiede2000::improved_difference(pixel_lab, color_a);
-            let diff_b = ImprovedCiede2000::improved_difference(pixel_lab, color_b);
+            let diff_a = Ciede2000::difference(pixel_lab, color_a);
+            let diff_b = Ciede2000::difference(pixel_lab, color_b);
             diff_a.partial_cmp(&diff_b).unwrap()
         })
         .map(|(index, _)| index)
