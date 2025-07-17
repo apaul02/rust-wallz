@@ -3,8 +3,7 @@ use palette::{
     color_difference::{DeltaE, ImprovedCiede2000},
     IntoColor, Lab, Srgb,
 };
-// Note: The imageproc crate is not strictly needed for the resize operations,
-// which are part of the core image crateu
+
 
 
 fn main() {
@@ -12,7 +11,7 @@ fn main() {
     let (width, height) = img.dimensions();
     println!("Original dimensions: {}x{}", width, height);
 
-    // --- 1. UPSCALE THE IMAGE 2X ---
+    // Upscale to 2x resolution
     let hires_width = width * 2;
     let hires_height = height * 2;
     println!("Upscaling to {}x{}...", hires_width, hires_height);
@@ -23,25 +22,28 @@ fn main() {
         imageops::FilterType::CatmullRom,
     );
 
-    let hex_palette = [
-  // Base / Background shades
-  "#232634", "#292c3c", "#303446", "#414559", "#51576d", "#626880",
-  // Text / Subtext
-  "#737994", "#838ba7", "#949cbb", "#a5adce", "#b5bfe2", "#c6d0f5",
-  // Overlay / Surface
-  "#494d64", "#5c5f77", "#6c7086", "#7f849c", "#9399b2", "#a6adc8",
-  // Accents – Warm
-  "#f2d5cf", "#eebebe", "#e78284", "#f38ba8", "#ef9f76", "#fab387",
-  // Accents – Cool
-  "#a6e3a1", "#81c8be", "#94e2d5", "#99d1db", "#89b4fa", "#8caaee",
-  // Additional Highlights
-  "#f5e0dc", "#f2cdcd"
-];
+  let hex_palette = [
+  // Backgrounds
+  "#282a36", // Background
+  "#21222c", // Current Line / Selection
+  "#3a3f51", // Comment
 
+  // Foreground / Text
+  "#f8f8f2", // Foreground (Default Text)
+  "#6272a4", // Selection Background (Similar to Comment)
+
+  // Accents
+  "#ff79c6", // Pink (Functions, Keywords, Strings)
+  "#bd93f9", // Purple (Variables, Operators)
+  "#ffb86c", // Orange (Numbers, Booleans)
+  "#50fa7b", // Green (Strings, RegEx)
+  "#8be9fd", // Cyan (Classes, Types)
+  "#f1fa8c"  // Yellow (Parameters, Special Keywords)
+];
     let lab_palette: Vec<Lab> = hex_palette.iter().map(|&h| hex_to_lab(h)).collect();
     let rgb_palette: Vec<Rgb<u8>> = hex_palette.iter().map(|&h| hex_to_rgb(h)).collect();
 
-    // Convert the HIGH-RESOLUTION image to float pixels for processing
+    // Convert the HI-RES image to float pixels for processing
     let mut hires_float_pixels: Vec<Srgb<f32>> = hires_img
         .pixels()
         .map(|p| {
@@ -54,11 +56,13 @@ fn main() {
         })
         .collect();
 
-    let dither_strength = 1.0; // You can still tune this
+    let dither_strength = 1.0; // tune this
     println!("Processing {}x{} image with dithering (strength: {})...", hires_width, hires_height, dither_strength);
 
-    // --- 2. DITHER THE HIGH-RESOLUTION IMAGE ---
+    // --- The main dithering loop ---
     let mut dithered_hires_image: RgbImage = RgbImage::new(hires_width, hires_height);
+    
+    let start_timer = std::time::Instant::now();
 
     for y in 0..hires_height {
         for x in 0..hires_width {
@@ -82,7 +86,7 @@ fn main() {
             let error_g = (original_srgb.green - final_srgb.green) * dither_strength;
             let error_b = (original_srgb.blue - final_srgb.blue) * dither_strength;
 
-            // Using Jarvis, Judice, and Ninke kernel
+            // Jarvis, Judice, and Ninke kernel
             let weights = [
                 ((1, 0), 7.0 / 48.0), ((2, 0), 5.0 / 48.0),
                 ((-2, 1), 3.0 / 48.0), ((-1, 1), 5.0 / 48.0), ((0, 1), 7.0 / 48.0), ((1, 1), 5.0 / 48.0), ((2, 1), 3.0 / 48.0),
@@ -104,8 +108,10 @@ fn main() {
             }
         }
     }
+    let elapsed = start_timer.elapsed();
+    println!("Dithering completed in {:.2?}", elapsed);
     
-    // --- 3. DOWNSCALE THE DITHERED IMAGE USING LANCZOS3 ---
+    // ---  Downscale the dithered image back to original size ---
     println!("Downscaling dithered image back to {}x{} using Lanczos3...", width, height);
     let downscaled_image = imageops::resize(
         &dithered_hires_image,
@@ -120,7 +126,7 @@ fn main() {
     println!("Image processing complete. Saved as output.png");
 }
 
-// --- Helper functions (unchanged) ---
+// --- Helper functions ---
 
 fn parse_hex(hex: &str) -> (u8, u8, u8) {
     let hex = hex.trim_start_matches('#');
